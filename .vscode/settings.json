@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "*.ijm": "javascript",
+        "random": "cpp"
+    }
+}
