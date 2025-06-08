@@ -8,6 +8,12 @@
 
 #include <Arduino.h>
 #include <bluefruit.h>
+#include "LSM6DS3.h"
+#include "Wire.h"
+extern "C" void* __wrap_calloc(size_t n, size_t size) {
+  return calloc(n, size);
+}
+#include "FastLED.h"
 
 // --- BLE adjustable variables ---
 uint8_t fadeOutRate       = 220; // Adjustable via BLE
@@ -15,6 +21,24 @@ uint8_t blendFactor       = 100;
 float   hueSensitivity    = 2.0f;
 uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
+
+// Create an instance of class LSM6DS3
+LSM6DS3 myIMU(I2C_MODE, 0x6A);    // I2C device address 0x6A
+
+// Complementary filter parameters
+float alpha = 0.98f;  // Complementary filter coefficient
+float roll = 0.0f, pitch = 0.0f;
+unsigned long lastUpdate = 0;
+
+// Global sensor-derived values for condition checking
+float totalAccel = 0.0f;
+float totalRotation = 0.0f;
+
+// FastLED setup
+#define NUM_LEDS 21
+#define DATA_PIN D3 
+CRGB leds[NUM_LEDS];  // Global LED array
+
 
 // Global BLE objects
 BLEService controlService("19B10000-E8F2-537E-4F6C-D104768A1214");
@@ -137,8 +161,15 @@ void rotationThresholdWriteCallback(uint16_t conn_handle, BLECharacteristic* chr
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting BLE-only build (Bluefruit) with string characteristics...");
-
+  // Initialize FastLED.
+  FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
+  FastLED.showColor(CRGB::Black);
+  FastLED.setBrightness(150);
+  FastLED.setCorrection(CRGB(255, 180, 180));
+  // Configure the IMU.
+  while (myIMU.begin() != 0) {
+      delay(1);
+  }
   // Initialize Bluefruit.
   Bluefruit.begin();
   Bluefruit.setName("Spectra");
@@ -208,20 +239,96 @@ void setup() {
   Serial.println("Bluefruit BLE server started, waiting for connections...");
 }
 
+
+// Helper function to wrap angles to [-180, 180] degrees.
+float wrapAngle180(float angle) {
+    while (angle > 180.0f) angle -= 360.0f;
+    while (angle < -180.0f) angle += 360.0f;
+    return angle;
+}
+
+// Reads sensor data from the IMU, updates roll and pitch, then returns the calculated hue.
+// Also updates totalAccel and totalRotation.
+uint8_t updateIMU() {
+    unsigned long now = millis();
+    float dt = (now - lastUpdate) / 1000.0f;
+    lastUpdate = now;
+    
+    // Read raw sensor data.
+    float ax = myIMU.readFloatAccelX();
+    float ay = myIMU.readFloatAccelY();
+    float az = myIMU.readFloatAccelZ();
+    
+    float gx = myIMU.readFloatGyroX();
+    float gy = myIMU.readFloatGyroY();
+    float gz = myIMU.readFloatGyroZ();
+    
+    // Convert gyroscope data from degrees/sec to radians/sec.
+    const float degToRad = 3.14159265358979f / 180.0f;
+    gx *= degToRad;
+    gy *= degToRad;
+    gz *= degToRad;
+    
+    // Compute totals for condition checking.
+    totalAccel = fabs(ax) + fabs(ay) + fabs(az);
+    totalRotation = fabs(gx) + fabs(gy);
+    
+    // Calculate accelerometer-based Roll and Pitch (in degrees).
+    float rollAcc = atan2(ay, az) * 180.0f / PI;
+    float pitchAcc = atan2(-ax, sqrt(ay * ay + az * az)) * 180.0f / PI;
+    
+    // Complementary filter to update roll and pitch.
+    float integratedRoll = roll + gx * dt;
+    float diffAngle = wrapAngle180(rollAcc - integratedRoll);
+    roll = integratedRoll + (1 - alpha) * diffAngle;
+    pitch = alpha * (pitch + gy * dt) + (1 - alpha) * pitchAcc;
+    
+    // Ensure roll stays within -180 to 180.
+    roll = wrapAngle180(roll);
+    
+    // Map roll from [-180, 180] to hue value [0, 255].
+    uint8_t hue = (uint8_t)(((roll + 180.0f) / 360.0f) * 256.0f) % 256;
+    return hue;
+}
+
+
+
 void loop() {
-  // Log current BLE parameter values every second.
-  static unsigned long lastPrint = 0;
-  if (millis() - lastPrint > 1000) {
-    Serial.print("fadeOutRate: ");
-    Serial.print(fadeOutRate);
-    Serial.print(" | blendFactor: ");
-    Serial.print(blendFactor);
-    Serial.print(" | hueSensitivity: ");
-    Serial.print(hueSensitivity, 2);
-    Serial.print(" | accelThreshold: ");
-    Serial.print(accelThreshold);
-    Serial.print(" | rotationThreshold: ");
-    Serial.println(rotationThreshold);
-    lastPrint = millis();
-  }
+    static unsigned long printTimer = 0;
+    unsigned long now = millis();
+
+    // Update sensor data and compute hue.
+    uint8_t hue = updateIMU() * hueSensitivity; // Scale hue for better visibility.
+
+    // Set the brightness for the first LED based on motion thresholds.
+    static uint8_t firstLedBrightness = 0;
+    if ((totalAccel > accelThreshold) || (totalRotation > rotationThreshold)) {
+        firstLedBrightness = 255;
+    } else { 
+        firstLedBrightness = scale8(firstLedBrightness, fadeOutRate); // Fade out effect.
+    }
+    
+    // Create trailing LED effect by blending pixels.
+    for (int i = NUM_LEDS - 1; i > 0; i--) {
+        leds[i] = blend(leds[i], leds[i - 1], blendFactor);
+    }
+    // Update the first LED with new hue and brightness.
+    leds[0] = CHSV(hue, 255, firstLedBrightness);
+
+    FastLED.show();
+    FastLED.delay(10); // limit frame rate to 100 FPS
+
+  //   if (millis() - printTimer > 1000) {
+  //   Serial.print("fadeOutRate: ");
+  //   Serial.print(fadeOutRate);
+  //   Serial.print(" | blendFactor: ");
+  //   Serial.print(blendFactor);
+  //   Serial.print(" | hueSensitivity: ");
+  //   Serial.print(hueSensitivity, 2);
+  //   Serial.print(" | accelThreshold: ");
+  //   Serial.print(accelThreshold);
+  //   Serial.print(" | rotationThreshold: ");
+  //   Serial.println(rotationThreshold);
+  //   printTimer = millis();
+  // }
 }
