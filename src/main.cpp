@@ -16,11 +16,16 @@ extern "C" void* __wrap_calloc(size_t n, size_t size) {
 #include "FastLED.h"
 
 // --- BLE adjustable variables ---
-uint8_t fadeOutRate       = 220; // Adjustable via BLE
+uint8_t fadeOutRate       = 100; // Adjustable via BLE
 uint8_t blendFactor       = 100;
-float   hueSensitivity    = 2.0f;
+uint8_t hueSensitivity10x = 20;   // will be divided by 10 for actual sensitivity
 uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
+uint8_t flickerRate        = 25; // Flicker rate in Hz
+
+
+// pin connected to button for toggling flicker effect
+#define FLICKER_BUTTON_PIN D8
 
 // Create an instance of class LSM6DS3
 LSM6DS3 myIMU(I2C_MODE, 0x6A);    // I2C device address 0x6A
@@ -38,6 +43,7 @@ float totalRotation = 0.0f;
 #define NUM_LEDS 21
 #define DATA_PIN D3 
 CRGB leds[NUM_LEDS];  // Global LED array
+CRGB leds_zero[NUM_LEDS];  // Global LED array set to black, for strobe effect
 
 
 // Global BLE objects
@@ -48,185 +54,114 @@ BLECharacteristic blendFactorChar("19B10002-E8F2-537E-4F6C-D104768A1214", BLERea
 BLECharacteristic hueSensitivityChar("19B10003-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
 BLECharacteristic accelThresholdChar("19B10004-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
 BLECharacteristic rotationThresholdChar("19B10005-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
+BLECharacteristic flickerRateChar("19B10006-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
 
-// Helper: maximum buffer size for string conversion.
-#define BUF_SIZE 16
 
-// Helper function to validate and convert to int.
-bool validateInt(const char *str, long *value) {
-  char *end;
-  long val = strtol(str, &end, 10);
-  if (end == str || *end != '\0') {
-    return false;
-  }
-  *value = val;
-  return true;
-}
-
-// Helper function to validate and convert to float.
-bool validateFloat(const char *str, float *value) {
-  char *end;
-  float val = strtof(str, &end);
-  if (end == str || *end != '\0') {
-    return false;
-  }
-  *value = val;
-  return true;
-}
-
-// Write callback for fadeOutRate characteristic.
+//
+// Updated write callbacks: use native data type
+//
 void fadeOutRateWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  char buf[BUF_SIZE];
-  if(len < BUF_SIZE) {
-    memcpy(buf, data, len);
-    buf[len] = '\0';
-    long val;
-    if(validateInt(buf, &val)) {
-      fadeOutRate = (uint8_t)val;
-      Serial.print("Updated fadeOutRate: ");
-      Serial.println(fadeOutRate);
-    } else {
-      Serial.println("Invalid fadeOutRate value received. Ignored.");
+    if (len >= 1) {
+        fadeOutRate = data[0];
+        Serial.print("Updated fadeOutRate: ");
+        Serial.println(fadeOutRate);
     }
-  }
 }
-
-// Write callback for blendFactor characteristic.
 void blendFactorWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  char buf[BUF_SIZE];
-  if(len < BUF_SIZE) {
-    memcpy(buf, data, len);
-    buf[len] = '\0';
-    long val;
-    if(validateInt(buf, &val)) {
-      blendFactor = (uint8_t)val;
-      Serial.print("Updated blendFactor: ");
-      Serial.println(blendFactor);
-    } else {
-      Serial.println("Invalid blendFactor value received. Ignored.");
+    if (len >= 1) {
+        blendFactor = data[0];
+        Serial.print("Updated blendFactor: ");
+        Serial.println(blendFactor);
     }
-  }
 }
-
-// Write callback for hueSensitivity characteristic.
 void hueSensitivityWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  char buf[BUF_SIZE];
-  if(len < BUF_SIZE) {
-    memcpy(buf, data, len);
-    buf[len] = '\0';
-    float val;
-    if(validateFloat(buf, &val)) {
-      hueSensitivity = val;
-      Serial.print("Updated hueSensitivity: ");
-      Serial.println(hueSensitivity, 2);
-    } else {
-      Serial.println("Invalid hueSensitivity value received. Ignored.");
+    if (len >= 1) {
+        hueSensitivity10x = data[0];
+        Serial.print("Updated hueSensitivity: ");
+        Serial.println(hueSensitivity10x);
     }
-  }
 }
-
-// Write callback for accelThreshold characteristic.
 void accelThresholdWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  char buf[BUF_SIZE];
-  if(len < BUF_SIZE) {
-    memcpy(buf, data, len);
-    buf[len] = '\0';
-    long val;
-    if(validateInt(buf, &val)) {
-      accelThreshold = (uint8_t)val;
-      Serial.print("Updated accelThreshold: ");
-      Serial.println(accelThreshold);
-    } else {
-      Serial.println("Invalid accelThreshold value received. Ignored.");
+    if (len >= 1) {
+        accelThreshold = data[0];
+        Serial.print("Updated accelThreshold: ");
+        Serial.println(accelThreshold);
     }
-  }
 }
-
-// Write callback for rotationThreshold characteristic.
 void rotationThresholdWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  char buf[BUF_SIZE];
-  if(len < BUF_SIZE) {
-    memcpy(buf, data, len);
-    buf[len] = '\0';
-    long val;
-    if(validateInt(buf, &val)) {
-      rotationThreshold = (uint8_t)val;
-      Serial.print("Updated rotationThreshold: ");
-      Serial.println(rotationThreshold);
-    } else {
-      Serial.println("Invalid rotationThreshold value received. Ignored.");
+    if (len >= 1) {
+        rotationThreshold = data[0];
+        Serial.print("Updated rotationThreshold: ");
+        Serial.println(rotationThreshold);
     }
+}
+void flickerRateWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
+  if (len >= 1) {
+    flickerRate = data[0];
+    Serial.print("Updated flickerRate: ");
+    Serial.println(flickerRate);
   }
 }
 
 void setup() {
+  pinMode(FLICKER_BUTTON_PIN, INPUT_PULLUP); 
   Serial.begin(115200);
   // Initialize FastLED.
   FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
   FastLED.showColor(CRGB::Black);
   FastLED.setBrightness(150);
   FastLED.setCorrection(CRGB(255, 180, 180));
+  fill_solid(leds, NUM_LEDS, CRGB::Black); // Initialize zero array
+  fill_solid(leds_zero, NUM_LEDS, CRGB::Black); // Initialize zero array
   // Configure the IMU.
   while (myIMU.begin() != 0) {
       delay(1);
   }
   // Initialize Bluefruit.
   Bluefruit.begin();
+  Bluefruit.autoConnLed(false); // Disable auto connection LED
   Bluefruit.setName("Spectra");
   // Optionally set Tx power
-  // Bluefruit.setTxPower(4);
-
-  // Get and print the MAC address.
-  uint8_t addr[6];
-  Bluefruit.getAddr(addr);
-  Serial.print("Device MAC: ");
-  for (int i = 5; i >= 0; i--) {
-    if (addr[i] < 16) Serial.print("0");
-    Serial.print(addr[i], HEX);
-    if(i > 0) Serial.print(":");
-  }
-  Serial.println();
 
   // Begin global service.
   controlService.begin();
 
-  // Configure and initialize characteristics.
-  char buf[BUF_SIZE];
-
-  fadeOutRateChar.setFixedLen(0);  // variable length
+  // Configure and initialize characteristics using native 1-byte values.
+  fadeOutRateChar.setFixedLen(1);
   fadeOutRateChar.setWriteCallback(fadeOutRateWriteCallback);
   fadeOutRateChar.setUserDescriptor("Fade-out Rate");
   fadeOutRateChar.begin();
-  sprintf(buf, "%d", fadeOutRate);
-  fadeOutRateChar.write((uint8_t*)buf, strlen(buf));
-
-  blendFactorChar.setFixedLen(0);
+  fadeOutRateChar.write8(fadeOutRate);
+  
+  blendFactorChar.setFixedLen(1);
   blendFactorChar.setWriteCallback(blendFactorWriteCallback);
   blendFactorChar.setUserDescriptor("Blend Factor");
   blendFactorChar.begin();
-  sprintf(buf, "%d", blendFactor);
-  blendFactorChar.write((uint8_t*)buf, strlen(buf));
-
-  hueSensitivityChar.setFixedLen(0);
+  blendFactorChar.write8(blendFactor);
+  
+  hueSensitivityChar.setFixedLen(1);
   hueSensitivityChar.setWriteCallback(hueSensitivityWriteCallback);
   hueSensitivityChar.setUserDescriptor("Hue Sensitivity");
   hueSensitivityChar.begin();
-  sprintf(buf, "%.2f", hueSensitivity);
-  hueSensitivityChar.write((uint8_t*)buf, strlen(buf));
-
-  accelThresholdChar.setFixedLen(0);
+  hueSensitivityChar.write8(hueSensitivity10x);
+  
+  accelThresholdChar.setFixedLen(1);
   accelThresholdChar.setWriteCallback(accelThresholdWriteCallback);
   accelThresholdChar.setUserDescriptor("Accel Threshold");
   accelThresholdChar.begin();
-  sprintf(buf, "%d", accelThreshold);
-  accelThresholdChar.write((uint8_t*)buf, strlen(buf));
-
-  rotationThresholdChar.setFixedLen(0);
+  accelThresholdChar.write8(accelThreshold);
+  
+  rotationThresholdChar.setFixedLen(1);
   rotationThresholdChar.setWriteCallback(rotationThresholdWriteCallback);
   rotationThresholdChar.setUserDescriptor("Rotation Threshold");
   rotationThresholdChar.begin();
-  sprintf(buf, "%d", rotationThreshold);
-  rotationThresholdChar.write((uint8_t*)buf, strlen(buf));
+  rotationThresholdChar.write8(rotationThreshold);
+  
+  flickerRateChar.setFixedLen(1);
+  flickerRateChar.setWriteCallback(flickerRateWriteCallback);
+  flickerRateChar.setUserDescriptor("Flicker Rate");
+  flickerRateChar.begin();
+  flickerRateChar.write8(flickerRate);
 
   // Begin advertising the service.
   Bluefruit.Advertising.addName();
@@ -291,14 +226,26 @@ uint8_t updateIMU() {
     return hue;
 }
 
-
+bool checkButtonPress() {
+    static bool flickerEnabled = false;
+    static unsigned long holdCounter = 0;
+    bool currentButtonState = digitalRead(FLICKER_BUTTON_PIN);
+    if (currentButtonState == LOW) {
+        holdCounter++;
+    } else {
+        if (holdCounter > 5) { // Button was held for >50ms
+            flickerEnabled = !flickerEnabled;
+        }
+        holdCounter = 0; // Always reset on release
+    }
+    return flickerEnabled;
+}
 
 void loop() {
-    static unsigned long printTimer = 0;
     unsigned long now = millis();
 
     // Update sensor data and compute hue.
-    uint8_t hue = updateIMU() * hueSensitivity; // Scale hue for better visibility.
+    uint8_t hue = updateIMU() * hueSensitivity10x / 10; // Scale hue for better visibility.
 
     // Set the brightness for the first LED based on motion thresholds.
     static uint8_t firstLedBrightness = 0;
@@ -314,21 +261,31 @@ void loop() {
     }
     // Update the first LED with new hue and brightness.
     leds[0] = CHSV(hue, 255, firstLedBrightness);
-
+    // Strobing effect based on flickerRate
+    bool flickerEnabled = checkButtonPress(); // Check for button press to toggle flicker effect
+    static bool strobeOn = true;
+    static unsigned long lastStrobe = 0;
+    if (flickerEnabled && flickerRate > 0) {
+      unsigned long strobeInterval = 500 / flickerRate; // ms for half cycle
+      if (now - lastStrobe >= strobeInterval) {
+        strobeOn = !strobeOn;
+        lastStrobe = now;
+      }
+    } else {
+      strobeOn = true; // If flicker is disabled, always show LEDs
+    }
+    if (strobeOn){
+      FastLED[0].setLeds(leds, NUM_LEDS); // display main LEDs
+    } else {
+      FastLED[0].setLeds(leds_zero, NUM_LEDS); // Set to zero array for strobe effect
+    }
+    if (flickerEnabled){
+      FastLED.setBrightness(255); // Full brightness when flicker is enabled so it doesn't dim the effect
+    } else {
+      FastLED.setBrightness(150); // Use a lower brightness when all LEDs are on
+    }
     FastLED.show();
     FastLED.delay(10); // limit frame rate to 100 FPS
 
-  //   if (millis() - printTimer > 1000) {
-  //   Serial.print("fadeOutRate: ");
-  //   Serial.print(fadeOutRate);
-  //   Serial.print(" | blendFactor: ");
-  //   Serial.print(blendFactor);
-  //   Serial.print(" | hueSensitivity: ");
-  //   Serial.print(hueSensitivity, 2);
-  //   Serial.print(" | accelThreshold: ");
-  //   Serial.print(accelThreshold);
-  //   Serial.print(" | rotationThreshold: ");
-  //   Serial.println(rotationThreshold);
-  //   printTimer = millis();
-  // }
+
 }
