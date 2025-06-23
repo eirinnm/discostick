@@ -1,12 +1,13 @@
 /*
-  Code for the Spectra project (BLE-only build).
-  All LSM6DS3 (IMU) and FastLED functionality disabled.
-  Using Bluefruit library.
-  Now the characteristics store their values as strings,
-  and invalid string values (non-numeric) are safely ignored.
+  Code for the Spectra project
+  Uses Adafruit Bluefruit nRF52, LSM6DS3 IMU, and FastLED library
+  This code implements motion controlled LED effects with BLE configurability
+  (c) Eirinn Mackay 2025
 */
 
 #include <Arduino.h>
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
 #include <bluefruit.h>
 #include "LSM6DS3.h"
 #include "Wire.h"
@@ -21,8 +22,24 @@ uint8_t blendFactor       = 100;
 uint8_t hueSensitivity10x = 20;   // will be divided by 10 for actual sensitivity
 uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
-uint8_t flickerRate        = 25; // Flicker rate in Hz
+uint8_t flickerRate       = 25; // Flicker rate in Hz
 
+const uint8_t DEFAULT_FADEOUT = 100;
+const uint8_t DEFAULT_BLEND = 100;
+const uint8_t DEFAULT_HUE = 20;
+const uint8_t DEFAULT_ACCEL = 2;
+const uint8_t DEFAULT_ROT = 2;
+const uint8_t DEFAULT_FLICKER = 25;
+
+// Structure for settings
+struct SpectraSettings {
+  uint8_t fadeOutRate;
+  uint8_t blendFactor;
+  uint8_t hueSensitivity10x;
+  uint8_t accelThreshold;
+  uint8_t rotationThreshold;
+  uint8_t flickerRate;
+};
 
 // pin connected to button for toggling flicker effect
 #define FLICKER_BUTTON_PIN D8
@@ -55,7 +72,8 @@ BLECharacteristic hueSensitivityChar("19B10003-E8F2-537E-4F6C-D104768A1214", BLE
 BLECharacteristic accelThresholdChar("19B10004-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
 BLECharacteristic rotationThresholdChar("19B10005-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
 BLECharacteristic flickerRateChar("19B10006-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
-
+BLECharacteristic saveSettingsChar("19B10007-E8F2-537E-4F6C-D104768A1214", BLEWrite);
+BLECharacteristic restoreDefaultsChar("19B10008-E8F2-537E-4F6C-D104768A1214", BLEWrite);
 
 //
 // Updated write callbacks: use native data type
@@ -102,6 +120,75 @@ void flickerRateWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint
     Serial.println(flickerRate);
   }
 }
+void saveSettingsWriteCallback(uint16_t, BLECharacteristic*, uint8_t*, uint16_t) {
+  saveSettings();
+}
+void restoreDefaultsWriteCallback(uint16_t, BLECharacteristic*, uint8_t*, uint16_t) {
+  restoreDefaults();
+  saveSettings(); // Optionally save defaults immediately
+}
+
+// Save settings to InternalFileSystem (LittleFS)
+void saveSettings() {
+  SpectraSettings s = {
+    fadeOutRate,
+    blendFactor,
+    hueSensitivity10x,
+    accelThreshold,
+    rotationThreshold,
+    flickerRate
+  };
+  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/spectra.cfg",
+    Adafruit_LittleFS_Namespace::FILE_O_WRITE);
+  if (f) {
+    f.write((uint8_t*)&s, sizeof(SpectraSettings));
+    f.close();
+    Serial.println("Settings saved to InternalFS.");
+  } else {
+    Serial.println("Failed to open settings file for writing!");
+  }
+}
+
+// Load settings from InternalFileSystem (LittleFS)
+void loadSettings() {
+  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/spectra.cfg", Adafruit_LittleFS_Namespace::FILE_O_READ);
+  if (f && f.size() == sizeof(SpectraSettings)) {
+    SpectraSettings s;
+    f.read((uint8_t*)&s, sizeof(SpectraSettings));
+    f.close();
+    fadeOutRate = s.fadeOutRate;
+    blendFactor = s.blendFactor;
+    hueSensitivity10x = s.hueSensitivity10x;
+    accelThreshold = s.accelThreshold;
+    rotationThreshold = s.rotationThreshold;
+    flickerRate = s.flickerRate;
+    Serial.println("Settings loaded from InternalFS.");
+  } else {
+    Serial.println("No valid settings file found, using defaults.");
+    restoreDefaults();
+    saveSettings(); // Save defaults so file exists for next boot
+  }
+}
+
+void restoreDefaults() {
+  fadeOutRate = DEFAULT_FADEOUT;
+  blendFactor = DEFAULT_BLEND;
+  hueSensitivity10x = DEFAULT_HUE;
+  accelThreshold = DEFAULT_ACCEL;
+  rotationThreshold = DEFAULT_ROT;
+  flickerRate = DEFAULT_FLICKER;
+
+  // Update BLE characteristics
+  fadeOutRateChar.write8(fadeOutRate);
+  blendFactorChar.write8(blendFactor);
+  hueSensitivityChar.write8(hueSensitivity10x);
+  accelThresholdChar.write8(accelThreshold);
+  rotationThresholdChar.write8(rotationThreshold);
+  flickerRateChar.write8(flickerRate);
+
+  Serial.println("Settings restored to defaults.");
+}
+
 
 void setup() {
   pinMode(FLICKER_BUTTON_PIN, INPUT_PULLUP); 
@@ -117,54 +204,73 @@ void setup() {
   while (myIMU.begin() != 0) {
       delay(1);
   }
+  if (!InternalFS.begin()) {
+    Serial.println("Failed to mount InternalFS!");
+    while (1) { delay(10); }
+  }
+  Serial.println("InternalFS mounted.");
   // Initialize Bluefruit.
   Bluefruit.begin();
   Bluefruit.autoConnLed(false); // Disable auto connection LED
   Bluefruit.setName("Spectra");
   // Optionally set Tx power
-
+  
   // Begin global service.
   controlService.begin();
-
+  
+  
   // Configure and initialize characteristics using native 1-byte values.
   fadeOutRateChar.setFixedLen(1);
   fadeOutRateChar.setWriteCallback(fadeOutRateWriteCallback);
   fadeOutRateChar.setUserDescriptor("Fade-out Rate");
   fadeOutRateChar.begin();
-  fadeOutRateChar.write8(fadeOutRate);
   
   blendFactorChar.setFixedLen(1);
   blendFactorChar.setWriteCallback(blendFactorWriteCallback);
   blendFactorChar.setUserDescriptor("Blend Factor");
   blendFactorChar.begin();
-  blendFactorChar.write8(blendFactor);
   
   hueSensitivityChar.setFixedLen(1);
   hueSensitivityChar.setWriteCallback(hueSensitivityWriteCallback);
   hueSensitivityChar.setUserDescriptor("Hue Sensitivity");
   hueSensitivityChar.begin();
-  hueSensitivityChar.write8(hueSensitivity10x);
   
   accelThresholdChar.setFixedLen(1);
   accelThresholdChar.setWriteCallback(accelThresholdWriteCallback);
   accelThresholdChar.setUserDescriptor("Accel Threshold");
   accelThresholdChar.begin();
-  accelThresholdChar.write8(accelThreshold);
   
   rotationThresholdChar.setFixedLen(1);
   rotationThresholdChar.setWriteCallback(rotationThresholdWriteCallback);
   rotationThresholdChar.setUserDescriptor("Rotation Threshold");
   rotationThresholdChar.begin();
-  rotationThresholdChar.write8(rotationThreshold);
   
   flickerRateChar.setFixedLen(1);
   flickerRateChar.setWriteCallback(flickerRateWriteCallback);
   flickerRateChar.setUserDescriptor("Flicker Rate");
   flickerRateChar.begin();
+  
+  saveSettingsChar.setFixedLen(1);
+  saveSettingsChar.setUserDescriptor("Save Settings");
+  saveSettingsChar.setWriteCallback(saveSettingsWriteCallback);
+  saveSettingsChar.begin();
+  
+  restoreDefaultsChar.setFixedLen(1);
+  restoreDefaultsChar.setUserDescriptor("Restore Defaults");
+  restoreDefaultsChar.setWriteCallback(restoreDefaultsWriteCallback);
+  restoreDefaultsChar.begin();
+
+  loadSettings(); // Load settings from InternalFS
+  fadeOutRateChar.write8(fadeOutRate);
+  blendFactorChar.write8(blendFactor);
+  hueSensitivityChar.write8(hueSensitivity10x);
+  accelThresholdChar.write8(accelThreshold);
+  rotationThresholdChar.write8(rotationThreshold);
   flickerRateChar.write8(flickerRate);
 
   // Begin advertising the service.
   Bluefruit.Advertising.addName();
+  Bluefruit.Advertising.addManufacturerData("Eirinn", 6); 
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addService(controlService);
   Bluefruit.Advertising.restartOnDisconnect(true);
