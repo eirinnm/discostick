@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectra Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.8;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 30px 20px;
+        }
+
+        .connection-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .connect-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .connect-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .connect-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .controls {
+            display: none;
+        }
+
+        .controls.show {
+            display: block;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        .control-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .slider-container {
+            position: relative;
+            margin-bottom: 5px;
+        }
+
+        .slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #e0e0e0;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .slider::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .slider-value {
+            display: inline-block;
+            background: #f8f9fa;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            color: #666;
+            min-width: 40px;
+            text-align: center;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .save-btn {
+            background: #28a745;
+            color: white;
+        }
+
+        .save-btn:hover {
+            background: #218838;
+            transform: translateY(-1px);
+        }
+
+        .reset-btn {
+            background: #dc3545;
+            color: white;
+        }
+
+        .reset-btn:hover {
+            background: #c82333;
+            transform: translateY(-1px);
+        }
+
+        .battery-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .battery-level {
+            font-size: 18px;
+            font-weight: 600;
+            color: #28a745;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+            
+            .header {
+                padding: 20px 15px;
+            }
+            
+            .content {
+                padding: 20px 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Spectra Control</h1>
+            <p>Motion-controlled LED configuration</p>
+        </div>
+        
+        <div class="content">
+            <div class="connection-section">
+                <button id="connectBtn" class="connect-btn">Connect to Spectra</button>
+                <div id="status" class="status disconnected">Not connected</div>
+            </div>
+
+            <div id="controls" class="controls">
+                <div class="control-group">
+                    <label class="control-label">Fade Out Rate</label>
+                    <div class="slider-container">
+                        <input type="range" id="fadeOutRate" class="slider" min="1" max="255" value="100">
+                        <span id="fadeOutRateValue" class="slider-value">100</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Blend Factor</label>
+                    <div class="slider-container">
+                        <input type="range" id="blendFactor" class="slider" min="1" max="255" value="100">
+                        <span id="blendFactorValue" class="slider-value">100</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Hue Sensitivity</label>
+                    <div class="slider-container">
+                        <input type="range" id="hueSensitivity" class="slider" min="1" max="100" value="20">
+                        <span id="hueSensitivityValue" class="slider-value">2.0</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Acceleration Threshold</label>
+                    <div class="slider-container">
+                        <input type="range" id="accelThreshold" class="slider" min="1" max="20" value="2">
+                        <span id="accelThresholdValue" class="slider-value">2</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Rotation Threshold</label>
+                    <div class="slider-container">
+                        <input type="range" id="rotationThreshold" class="slider" min="1" max="20" value="2">
+                        <span id="rotationThresholdValue" class="slider-value">2</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Flicker Rate (Hz)</label>
+                    <div class="slider-container">
+                        <input type="range" id="flickerRate" class="slider" min="1" max="100" value="25">
+                        <span id="flickerRateValue" class="slider-value">25</span>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button id="saveBtn" class="action-btn save-btn">Save Settings</button>
+                    <button id="resetBtn" class="action-btn reset-btn">Reset to Defaults</button>
+                </div>
+
+                <div class="battery-section">
+                    <div>Battery Level</div>
+                    <div id="batteryLevel" class="battery-level">---%</div>
+                </div>
+            </div>
+
+            <div id="error" class="error" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        class SpectraController {
+            constructor() {
+                this.device = null;
+                this.server = null;
+                this.service = null;
+                this.batteryService = null;
+                this.characteristics = {};
+                
+                // Service UUIDs from your Arduino code
+                this.SERVICE_UUID = '19B10000-E8F2-537E-4F6C-D104768A1214';
+                this.BATTERY_SERVICE_UUID = '180F';
+                
+                // Characteristic UUIDs
+                this.CHAR_UUIDS = {
+                    fadeOutRate: '19B10001-E8F2-537E-4F6C-D104768A1214',
+                    blendFactor: '19B10002-E8F2-537E-4F6C-D104768A1214',
+                    hueSensitivity: '19B10003-E8F2-537E-4F6C-D104768A1214',
+                    accelThreshold: '19B10004-E8F2-537E-4F6C-D104768A1214',
+                    rotationThreshold: '19B10005-E8F2-537E-4F6C-D104768A1214',
+                    flickerRate: '19B10006-E8F2-537E-4F6C-D104768A1214',
+                    saveSettings: '19B10007-E8F2-537E-4F6C-D104768A1214',
+                    restoreDefaults: '19B10008-E8F2-537E-4F6C-D104768A1214',
+                    batteryLevel: '2A19'
+                };
+                
+                this.initializeUI();
+            }
+
+            initializeUI() {
+                // Connect button
+                document.getElementById('connectBtn').addEventListener('click', () => {
+                    if (!this.device || !this.device.gatt.connected) {
+                        this.connect();
+                    } else {
+                        this.disconnect();
+                    }
+                });
+
+                // Control sliders
+                const sliders = ['fadeOutRate', 'blendFactor', 'hueSensitivity', 'accelThreshold', 'rotationThreshold', 'flickerRate'];
+                sliders.forEach(id => {
+                    const slider = document.getElementById(id);
+                    const valueDisplay = document.getElementById(id + 'Value');
+                    
+                    slider.addEventListener('input', (e) => {
+                        let displayValue = e.target.value;
+                        if (id === 'hueSensitivity') {
+                            displayValue = (parseInt(e.target.value) / 10).toFixed(1);
+                        }
+                        valueDisplay.textContent = displayValue;
+                        this.updateCharacteristic(id, parseInt(e.target.value));
+                    });
+                });
+
+                // Action buttons
+                document.getElementById('saveBtn').addEventListener('click', () => {
+                    this.saveSettings();
+                });
+
+                document.getElementById('resetBtn').addEventListener('click', () => {
+                    this.resetToDefaults();
+                });
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('error');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                setTimeout(() => {
+                    errorDiv.style.display = 'none';
+                }, 5000);
+            }
+
+            updateStatus(message, connected = false) {
+                const statusDiv = document.getElementById('status');
+                statusDiv.textContent = message;
+                statusDiv.className = `status ${connected ? 'connected' : 'disconnected'}`;
+            }
+
+            async connect() {
+                try {
+                    if (!navigator.bluetooth) {
+                        throw new Error('Web Bluetooth is not supported in this browser');
+                    }
+
+                    this.updateStatus('Connecting...');
+
+                    this.device = await navigator.bluetooth.requestDevice({
+                        filters: [{ name: 'Spectra' }],
+                        optionalServices: [this.SERVICE_UUID, this.BATTERY_SERVICE_UUID]
+                    });
+
+                    this.device.addEventListener('gattserverdisconnected', () => {
+                        this.onDisconnected();
+                    });
+
+                    this.server = await this.device.gatt.connect();
+                    this.service = await this.server.getPrimaryService(this.SERVICE_UUID);
+                    this.batteryService = await this.server.getPrimaryService(this.BATTERY_SERVICE_UUID);
+
+                    // Get all characteristics
+                    for (const [name, uuid] of Object.entries(this.CHAR_UUIDS)) {
+                        try {
+                            if (name === 'batteryLevel') {
+                                this.characteristics[name] = await this.batteryService.getCharacteristic(uuid);
+                            } else {
+                                this.characteristics[name] = await this.service.getCharacteristic(uuid);
+                            }
+                        } catch (e) {
+                            console.warn(`Could not get characteristic ${name}:`, e);
+                        }
+                    }
+
+                    // Read current values
+                    await this.readCurrentSettings();
+                    
+                    // Start battery monitoring
+                    this.startBatteryMonitoring();
+
+                    this.updateStatus('Connected to Spectra', true);
+                    document.getElementById('controls').classList.add('show');
+                    document.getElementById('connectBtn').textContent = 'Disconnect';
+
+                } catch (error) {
+                    console.error('Connection failed:', error);
+                    this.showError('Failed to connect: ' + error.message);
+                    this.updateStatus('Connection failed');
+                }
+            }
+
+            async disconnect() {
+                if (this.device && this.device.gatt.connected) {
+                    this.device.gatt.disconnect();
+                }
+            }
+
+            onDisconnected() {
+                this.updateStatus('Disconnected');
+                document.getElementById('controls').classList.remove('show');
+                document.getElementById('connectBtn').textContent = 'Connect to Spectra';
+                this.device = null;
+                this.server = null;
+                this.service = null;
+                this.batteryService = null;
+                this.characteristics = {};
+            }
+
+            async readCurrentSettings() {
+                const settings = ['fadeOutRate', 'blendFactor', 'hueSensitivity', 'accelThreshold', 'rotationThreshold', 'flickerRate'];
+                
+                for (const setting of settings) {
+                    try {
+                        if (this.characteristics[setting]) {
+                            const value = await this.characteristics[setting].readValue();
+                            const intValue = value.getUint8(0);
+                            
+                            document.getElementById(setting).value = intValue;
+                            
+                            let displayValue = intValue;
+                            if (setting === 'hueSensitivity') {
+                                displayValue = (intValue / 10).toFixed(1);
+                            }
+                            document.getElementById(setting + 'Value').textContent = displayValue;
+                        }
+                    } catch (e) {
+                        console.warn(`Could not read ${setting}:`, e);
+                    }
+                }
+            }
+
+            async updateCharacteristic(name, value) {
+                try {
+                    if (this.characteristics[name]) {
+                        const data = new Uint8Array([value]);
+                        await this.characteristics[name].writeValue(data);
+                    }
+                } catch (error) {
+                    console.error(`Failed to update ${name}:`, error);
+                    this.showError(`Failed to update ${name}`);
+                }
+            }
+
+            async saveSettings() {
+                try {
+                    if (this.characteristics.saveSettings) {
+                        const data = new Uint8Array([1]);
+                        await this.characteristics.saveSettings.writeValue(data);
+                        this.updateStatus('Settings saved!', true);
+                        setTimeout(() => {
+                            this.updateStatus('Connected to Spectra', true);
+                        }, 2000);
+                    }
+                } catch (error) {
+                    console.error('Failed to save settings:', error);
+                    this.showError('Failed to save settings');
+                }
+            }
+
+            async resetToDefaults() {
+                try {
+                    if (this.characteristics.restoreDefaults) {
+                        const data = new Uint8Array([1]);
+                        await this.characteristics.restoreDefaults.writeValue(data);
+                        
+                        // Wait a moment then read the updated values
+                        setTimeout(() => {
+                            this.readCurrentSettings();
+                        }, 500);
+                        
+                        this.updateStatus('Reset to defaults', true);
+                        setTimeout(() => {
+                            this.updateStatus('Connected to Spectra', true);
+                        }, 2000);
+                    }
+                } catch (error) {
+                    console.error('Failed to reset to defaults:', error);
+                    this.showError('Failed to reset to defaults');
+                }
+            }
+
+            async startBatteryMonitoring() {
+                try {
+                    if (this.characteristics.batteryLevel) {
+                        // Read initial battery level
+                        const value = await this.characteristics.batteryLevel.readValue();
+                        const batteryLevel = value.getUint8(0);
+                        document.getElementById('batteryLevel').textContent = `${batteryLevel}%`;
+
+                        // Start notifications for battery updates
+                        await this.characteristics.batteryLevel.startNotifications();
+                        this.characteristics.batteryLevel.addEventListener('characteristicvaluechanged', (event) => {
+                            const batteryLevel = event.target.value.getUint8(0);
+                            document.getElementById('batteryLevel').textContent = `${batteryLevel}%`;
+                        });
+                    }
+                } catch (error) {
+                    console.warn('Battery monitoring not available:', error);
+                }
+            }
+        }
+
+        // Check if Web Bluetooth is supported
+        if ('bluetooth' in navigator) {
+            const controller = new SpectraController();
+        } else {
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('connectBtn').textContent = 'Web Bluetooth not supported';
+        }
+    </script>
+</body>
+</html>
