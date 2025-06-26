@@ -24,6 +24,8 @@ uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
 uint8_t flickerRate       = 25; // Flicker rate in Hz
 
+// uint8_t debugHueSensitivity = 0;
+
 const uint8_t DEFAULT_FADEOUT = 100;
 const uint8_t DEFAULT_BLEND = 100;
 const uint8_t DEFAULT_HUE = 20;
@@ -74,10 +76,15 @@ BLECharacteristic rotationThresholdChar("19B10005-E8F2-537E-4F6C-D104768A1214", 
 BLECharacteristic flickerRateChar("19B10006-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
 BLECharacteristic saveSettingsChar("19B10007-E8F2-537E-4F6C-D104768A1214", BLEWrite);
 BLECharacteristic restoreDefaultsChar("19B10008-E8F2-537E-4F6C-D104768A1214", BLEWrite);
+BLEService batteryService("180F"); // Standard Battery Service UUID
+BLECharacteristic batteryLevelChar("2A19", BLERead | BLENotify);
 
-//
-// Updated write callbacks: use native data type
-//
+// Function prototypes for settings management
+void saveSettings();
+void loadSettings();
+void restoreDefaults();
+
+
 void fadeOutRateWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
     if (len >= 1) {
         fadeOutRate = data[0];
@@ -122,6 +129,12 @@ void flickerRateWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint
 }
 void saveSettingsWriteCallback(uint16_t, BLECharacteristic*, uint8_t*, uint16_t) {
   saveSettings();
+  // flash the LEDs
+  fill_solid(leds, NUM_LEDS, CRGB::Green);
+  FastLED.show();
+  delay(100);
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  FastLED.show();
 }
 void restoreDefaultsWriteCallback(uint16_t, BLECharacteristic*, uint8_t*, uint16_t) {
   restoreDefaults();
@@ -138,8 +151,11 @@ void saveSettings() {
     rotationThreshold,
     flickerRate
   };
-  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/spectra.cfg",
-    Adafruit_LittleFS_Namespace::FILE_O_WRITE);
+
+  // Remove the file first to ensure truncation
+  InternalFS.remove("/spectra.cfg");
+
+  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/spectra.cfg", Adafruit_LittleFS_Namespace::FILE_O_WRITE);
   if (f) {
     f.write((uint8_t*)&s, sizeof(SpectraSettings));
     f.close();
@@ -152,6 +168,10 @@ void saveSettings() {
 // Load settings from InternalFileSystem (LittleFS)
 void loadSettings() {
   Adafruit_LittleFS_Namespace::File f = InternalFS.open("/spectra.cfg", Adafruit_LittleFS_Namespace::FILE_O_READ);
+  if (f) {
+    Serial.print("spectra.cfg size: ");
+    Serial.println(f.size());
+  }
   if (f && f.size() == sizeof(SpectraSettings)) {
     SpectraSettings s;
     f.read((uint8_t*)&s, sizeof(SpectraSettings));
@@ -162,6 +182,7 @@ void loadSettings() {
     accelThreshold = s.accelThreshold;
     rotationThreshold = s.rotationThreshold;
     flickerRate = s.flickerRate;
+    // debugHueSensitivity = s.hueSensitivity10x; // Set debug variable ONCE here
     Serial.println("Settings loaded from InternalFS.");
   } else {
     Serial.println("No valid settings file found, using defaults.");
@@ -191,8 +212,16 @@ void restoreDefaults() {
 
 
 void setup() {
-  pinMode(FLICKER_BUTTON_PIN, INPUT_PULLUP); 
   Serial.begin(115200);
+   // Wait for serial connection (only if USB is connected)
+  // while (!Serial) {
+  //   delay(10);
+  // }
+  Serial.println("Spectra starting up...");
+  pinMode(FLICKER_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(VBAT_ENABLE, OUTPUT); // set low to enable VBAT reading
+  digitalWrite(VBAT_ENABLE, LOW); // Enable VBAT reading
+  pinMode(PIN_VBAT, INPUT); // Set VBAT ADC pin as input to read voltage
   // Initialize FastLED.
   FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
   FastLED.showColor(CRGB::Black);
@@ -260,6 +289,12 @@ void setup() {
   restoreDefaultsChar.setWriteCallback(restoreDefaultsWriteCallback);
   restoreDefaultsChar.begin();
 
+  batteryService.begin();
+
+  batteryLevelChar.setFixedLen(1);
+  batteryLevelChar.setUserDescriptor("Battery Level");
+  batteryLevelChar.begin();
+
   loadSettings(); // Load settings from InternalFS
   fadeOutRateChar.write8(fadeOutRate);
   blendFactorChar.write8(blendFactor);
@@ -273,8 +308,10 @@ void setup() {
   Bluefruit.Advertising.addManufacturerData("Eirinn", 6); 
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addService(controlService);
+  Bluefruit.Advertising.addService(batteryService);
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244);
+  Bluefruit.Advertising.setInterval(1600, 3200); // 1–2 seconds
+  Bluefruit.Periph.setConnInterval(80, 160);     // 100–200ms (optional)
   Bluefruit.Advertising.start();
 
   Serial.println("Bluefruit BLE server started, waiting for connections...");
@@ -332,6 +369,25 @@ uint8_t updateIMU() {
     return hue;
 }
 
+
+uint8_t getBatteryPercent() {
+    // Read raw ADC value (10-bit: 0–1023, 3.3V reference)
+    uint16_t raw = analogRead(PIN_VBAT);
+
+    // Convert ADC value to measured voltage (at divider output)
+    float vbat_measured = (raw / 1023.0f) * 3.3f;
+
+    // Actual battery voltage (divider is 1/3, so multiply by 3)
+    float vbat = vbat_measured * 3.0f;
+
+    // Map voltage to percentage (3.0V = 0%, 4.2V = 100%)
+    float percent = (vbat - 3.0f) / (4.2f - 3.0f) * 100.0f;
+    if (percent > 100.0f) percent = 100.0f;
+    if (percent < 0.0f) percent = 0.0f;
+
+    return (uint8_t)(percent + 0.5f); // Round to nearest integer
+}
+
 bool checkButtonPress() {
     static bool flickerEnabled = false;
     static unsigned long holdCounter = 0;
@@ -386,12 +442,17 @@ void loop() {
       FastLED[0].setLeds(leds_zero, NUM_LEDS); // Set to zero array for strobe effect
     }
     if (flickerEnabled){
-      FastLED.setBrightness(255); // Full brightness when flicker is enabled so it doesn't dim the effect
+      FastLED.setBrightness(200); // brighter when flicker is enabled so it doesn't dim the effect
     } else {
       FastLED.setBrightness(150); // Use a lower brightness when all LEDs are on
     }
     FastLED.show();
     FastLED.delay(10); // limit frame rate to 100 FPS
-
-
+    static unsigned long lastBatteryUpdate = 0;
+    if (millis() - lastBatteryUpdate > 5000) { // Every 5 seconds
+      uint8_t battery = getBatteryPercent();
+      batteryLevelChar.write8(battery);      // Update value
+      batteryLevelChar.notify8(battery);     // Notify connected clients
+      lastBatteryUpdate = millis();
+    }
 }
