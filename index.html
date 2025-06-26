@@ -424,7 +424,7 @@
                     for (const [name, uuid] of Object.entries(this.CHAR_UUIDS)) {
                         try {
                             if (name === 'batteryLevel') {
-                                this.characteristics[name] = await this.batteryService.getCharacteristic(uuid);
+                                this.characteristics[name] = await this.batteryService.getCharacteristic(0x2a19);
                             } else {
                                 this.characteristics[name] = await this.service.getCharacteristic(uuid);
                             }
