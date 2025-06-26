@@ -330,7 +330,7 @@
                 
                 // Service UUIDs from your Arduino code
                 this.SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
-                this.BATTERY_SERVICE_UUID = '180f';
+                this.BATTERY_SERVICE_UUID = 0x180f;
                 
                 // Characteristic UUIDs
                 this.CHAR_UUIDS = {
@@ -409,7 +409,7 @@
 
                     this.device = await navigator.bluetooth.requestDevice({
                         filters: [{ name: 'Spectra' }],
-                        optionalServices: [this.SERVICE_UUID, this.BATTERY_SERVICE_UUID]
+                        optionalServices: [this.SERVICE_UUID, 0x180f]
                     });
 
                     this.device.addEventListener('gattserverdisconnected', () => {
@@ -418,7 +418,7 @@
 
                     this.server = await this.device.gatt.connect();
                     this.service = await this.server.getPrimaryService(this.SERVICE_UUID);
-                    this.batteryService = await this.server.getPrimaryService(this.BATTERY_SERVICE_UUID);
+                    this.batteryService = await this.server.getPrimaryService(0x180f);
 
                     // Get all characteristics
                     for (const [name, uuid] of Object.entries(this.CHAR_UUIDS)) {
