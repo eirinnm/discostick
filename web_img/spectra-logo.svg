@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="1920"
+   height="1080"
+   viewBox="0 0 1920 1080"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="spectra-logo.svg"
+   inkscape:version="1.4 (86a8ad7, 2024-10-11)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="4.2544258"
+     inkscape:cx="754.86097"
+     inkscape:cy="234.93182"
+     inkscape:window-width="3000"
+     inkscape:window-height="1906"
+     inkscape:window-x="-11"
+     inkscape:window-y="-11"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <text
+       xml:space="preserve"
+       style="font-weight:bold;font-size:85.3333px;font-family:Celtica;-inkscape-font-specification:'Celtica Bold';text-align:start;letter-spacing:-1px;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#a48fec;stroke:none;stroke-width:1.18;stroke-linecap:round;stroke-linejoin:round"
+       x="651.52356"
+       y="191.46814"
+       id="text1"><tspan
+         sodipodi:role="line"
+         id="tspan1"
+         x="651.52356"
+         y="191.46814"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:85.3333px;font-family:Pacifico;-inkscape-font-specification:Pacifico;stroke:none">Spectra</tspan></text>
+  </g>
+</svg>
