@@ -222,6 +222,9 @@ void setup() {
   pinMode(VBAT_ENABLE, OUTPUT); // set low to enable VBAT reading
   digitalWrite(VBAT_ENABLE, LOW); // Enable VBAT reading
   pinMode(PIN_VBAT, INPUT); // Set VBAT ADC pin as input to read voltage
+  // initialise ADC wireing_analog_nRF52.c:73
+  analogReference(AR_DEFAULT);        // default 0.6V*6=3.6V  wireing_analog_nRF52.c:73
+  analogReadResolution(12);           // wireing_analog_nRF52.c:39
   // Initialize FastLED.
   FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
   FastLED.showColor(CRGB::Black);
@@ -320,72 +323,69 @@ void setup() {
 
 // Helper function to wrap angles to [-180, 180] degrees.
 float wrapAngle180(float angle) {
-    while (angle > 180.0f) angle -= 360.0f;
-    while (angle < -180.0f) angle += 360.0f;
-    return angle;
+  while (angle > 180.0f) angle -= 360.0f;
+  while (angle < -180.0f) angle += 360.0f;
+  return angle;
 }
 
 // Reads sensor data from the IMU, updates roll and pitch, then returns the calculated hue.
 // Also updates totalAccel and totalRotation.
 uint8_t updateIMU() {
-    unsigned long now = millis();
-    float dt = (now - lastUpdate) / 1000.0f;
-    lastUpdate = now;
-    
-    // Read raw sensor data.
-    float ax = myIMU.readFloatAccelX();
-    float ay = myIMU.readFloatAccelY();
-    float az = myIMU.readFloatAccelZ();
-    
-    float gx = myIMU.readFloatGyroX();
-    float gy = myIMU.readFloatGyroY();
-    float gz = myIMU.readFloatGyroZ();
-    
-    // Convert gyroscope data from degrees/sec to radians/sec.
-    const float degToRad = 3.14159265358979f / 180.0f;
-    gx *= degToRad;
-    gy *= degToRad;
-    gz *= degToRad;
-    
-    // Compute totals for condition checking.
-    totalAccel = fabs(ax) + fabs(ay) + fabs(az);
-    totalRotation = fabs(gx) + fabs(gy);
-    
-    // Calculate accelerometer-based Roll and Pitch (in degrees).
-    float rollAcc = atan2(ay, az) * 180.0f / PI;
-    float pitchAcc = atan2(-ax, sqrt(ay * ay + az * az)) * 180.0f / PI;
-    
-    // Complementary filter to update roll and pitch.
-    float integratedRoll = roll + gx * dt;
-    float diffAngle = wrapAngle180(rollAcc - integratedRoll);
-    roll = integratedRoll + (1 - alpha) * diffAngle;
-    pitch = alpha * (pitch + gy * dt) + (1 - alpha) * pitchAcc;
-    
-    // Ensure roll stays within -180 to 180.
-    roll = wrapAngle180(roll);
-    
-    // Map roll from [-180, 180] to hue value [0, 255].
-    uint8_t hue = (uint8_t)(((roll + 180.0f) / 360.0f) * 256.0f) % 256;
-    return hue;
+  unsigned long now = millis();
+  float dt = (now - lastUpdate) / 1000.0f;
+  lastUpdate = now;
+  
+  // Read raw sensor data.
+  float ax = myIMU.readFloatAccelX();
+  float ay = myIMU.readFloatAccelY();
+  float az = myIMU.readFloatAccelZ();
+  
+  float gx = myIMU.readFloatGyroX();
+  float gy = myIMU.readFloatGyroY();
+  float gz = myIMU.readFloatGyroZ();
+  
+  // Convert gyroscope data from degrees/sec to radians/sec.
+  const float degToRad = 3.14159265358979f / 180.0f;
+  gx *= degToRad;
+  gy *= degToRad;
+  gz *= degToRad;
+  
+  // Compute totals for condition checking.
+  totalAccel = fabs(ax) + fabs(ay) + fabs(az);
+  totalRotation = fabs(gx) + fabs(gy);
+  
+  // Calculate accelerometer-based Roll and Pitch (in degrees).
+  float rollAcc = atan2(ay, az) * 180.0f / PI;
+  float pitchAcc = atan2(-ax, sqrt(ay * ay + az * az)) * 180.0f / PI;
+  
+  // Complementary filter to update roll and pitch.
+  float integratedRoll = roll + gx * dt;
+  float diffAngle = wrapAngle180(rollAcc - integratedRoll);
+  roll = integratedRoll + (1 - alpha) * diffAngle;
+  pitch = alpha * (pitch + gy * dt) + (1 - alpha) * pitchAcc;
+  
+  // Ensure roll stays within -180 to 180.
+  roll = wrapAngle180(roll);
+  
+  // Map roll from [-180, 180] to hue value [0, 255].
+  uint8_t hue = (uint8_t)(((roll + 180.0f) / 360.0f) * 256.0f) % 256;
+  return hue;
 }
 
+// Use the correct divider factor and reference voltage
+#define VBAT_DIVIDER_RATIO (510.0f / (1000.0f + 510.0f)) // ≈ 0.3377
+#define VBAT_DIVIDER_CORRECTION (1.0f / VBAT_DIVIDER_RATIO) // ≈ 2.96
+#define ADC_REF_VOLTAGE 3.6f // Change to 3.3f if that's correct
+#define ADC_MAX 4095.0f      // Change to 4095.0f if 12-bit ADC
 
 uint8_t getBatteryPercent() {
-    // Read raw ADC value (10-bit: 0–1023, 3.3V reference)
-    uint16_t raw = analogRead(PIN_VBAT);
-
-    // Convert ADC value to measured voltage (at divider output)
-    float vbat_measured = (raw / 1023.0f) * 3.3f;
-
-    // Actual battery voltage (divider is 1/3, so multiply by 3)
-    float vbat = vbat_measured * 3.0f;
-
-    // Map voltage to percentage (3.0V = 0%, 4.2V = 100%)
-    float percent = (vbat - 3.0f) / (4.2f - 3.0f) * 100.0f;
-    if (percent > 100.0f) percent = 100.0f;
-    if (percent < 0.0f) percent = 0.0f;
-
-    return (uint8_t)(percent + 0.5f); // Round to nearest integer
+  uint16_t raw = analogRead(PIN_VBAT);
+  float vbat_measured = (raw / ADC_MAX) * ADC_REF_VOLTAGE;
+  float vbat = vbat_measured * VBAT_DIVIDER_CORRECTION;
+  float percent = (vbat - 3.0f) / (4.2f - 3.0f) * 100.0f;
+  if (percent > 100.0f) percent = 100.0f;
+  if (percent < 0.0f) percent = 0.0f;
+  return (uint8_t)(percent + 0.5f);
 }
 
 bool checkButtonPress() {
