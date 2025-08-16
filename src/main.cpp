@@ -1,5 +1,5 @@
 /*
-  Code for the Spectra project
+  Code for the Discostick project
   Uses Adafruit Bluefruit nRF52, LSM6DS3 IMU, and FastLED library
   This code implements motion controlled LED effects with BLE configurability
   (c) Eirinn Mackay 2025
@@ -34,7 +34,7 @@ const uint8_t DEFAULT_ROT = 2;
 const uint8_t DEFAULT_FLICKER = 25;
 
 // Structure for settings
-struct SpectraSettings {
+struct DiscostickSettings {
   uint8_t fadeOutRate;
   uint8_t blendFactor;
   uint8_t hueSensitivity10x;
@@ -143,7 +143,7 @@ void restoreDefaultsWriteCallback(uint16_t, BLECharacteristic*, uint8_t*, uint16
 
 // Save settings to InternalFileSystem (LittleFS)
 void saveSettings() {
-  SpectraSettings s = {
+  DiscostickSettings s = {
     fadeOutRate,
     blendFactor,
     hueSensitivity10x,
@@ -153,11 +153,11 @@ void saveSettings() {
   };
 
   // Remove the file first to ensure truncation
-  InternalFS.remove("/spectra.cfg");
+  InternalFS.remove("/discostick.cfg");
 
-  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/spectra.cfg", Adafruit_LittleFS_Namespace::FILE_O_WRITE);
+  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/discostick.cfg", Adafruit_LittleFS_Namespace::FILE_O_WRITE);
   if (f) {
-    f.write((uint8_t*)&s, sizeof(SpectraSettings));
+    f.write((uint8_t*)&s, sizeof(DiscostickSettings));
     f.close();
     Serial.println("Settings saved to InternalFS.");
   } else {
@@ -167,14 +167,14 @@ void saveSettings() {
 
 // Load settings from InternalFileSystem (LittleFS)
 void loadSettings() {
-  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/spectra.cfg", Adafruit_LittleFS_Namespace::FILE_O_READ);
+  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/discostick.cfg", Adafruit_LittleFS_Namespace::FILE_O_READ);
   if (f) {
-    Serial.print("spectra.cfg size: ");
+    Serial.print("discostick.cfg size: ");
     Serial.println(f.size());
   }
-  if (f && f.size() == sizeof(SpectraSettings)) {
-    SpectraSettings s;
-    f.read((uint8_t*)&s, sizeof(SpectraSettings));
+  if (f && f.size() == sizeof(DiscostickSettings)) {
+    DiscostickSettings s;
+    f.read((uint8_t*)&s, sizeof(DiscostickSettings));
     f.close();
     fadeOutRate = s.fadeOutRate;
     blendFactor = s.blendFactor;
@@ -217,7 +217,7 @@ void setup() {
   // while (!Serial) {
   //   delay(10);
   // }
-  Serial.println("Spectra starting up...");
+  Serial.println("Discostick starting up...");
   pinMode(FLICKER_BUTTON_PIN, INPUT_PULLUP);
   pinMode(VBAT_ENABLE, OUTPUT); // set low to enable VBAT reading
   digitalWrite(VBAT_ENABLE, LOW); // Enable VBAT reading
@@ -244,7 +244,7 @@ void setup() {
   // Initialize Bluefruit.
   Bluefruit.begin();
   Bluefruit.autoConnLed(false); // Disable auto connection LED
-  Bluefruit.setName("Spectra");
+  Bluefruit.setName("Discostick");
   // Optionally set Tx power
   
   // Begin global service.
