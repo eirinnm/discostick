@@ -27,7 +27,7 @@ uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
 uint8_t rotationThresholdExitScreensaver = rotationThreshold * 4;
 uint8_t flickerRate       = 25; // Flicker rate in Hz
-uint8_t globalBrightness = 120; 
+uint8_t maxCurrent = 300;
 
 unsigned long screensaverTimeout_ms = 30000; // 30 seconds
 
@@ -81,8 +81,7 @@ void setup() {
   analogReadResolution(12);           // wireing_analog_nRF52.c:39
   FastLED.addLeds<WS2812B, DATA_PIN_1, GRB>(leds1, NUM_LEDS);
   FastLED.addLeds<WS2812B, DATA_PIN_2, GRB>(leds2, NUM_LEDS);
-  FastLED.setMaxPowerInVoltsAndMilliamps(5, 300);
-  // FastLED.setBrightness(globalBrightness);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, maxCurrent);
   FastLED.setCorrection(TypicalLEDStrip);
   fill_solid(leds, NUM_LEDS, CRGB::Black); // Initialize zero array
   fill_solid(leds1, NUM_LEDS, CRGB::Black); // Initialize zero array
@@ -344,6 +343,12 @@ void loop() {
     batteryLevelChar.write8(battery);      // Update value
     batteryLevelChar.notify8(battery);     // Notify connected clients
     lastBatteryUpdate = millis();
+    if(battery < 20) {
+      FastLED.setMaxPowerInVoltsAndMilliamps(5, 150);
+      // Optionally, you can add a visual warning here
+      leds1[0] = CRGB::Red;
+      FastLED.show();
+    }
   }
 }
 
