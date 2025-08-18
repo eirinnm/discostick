@@ -78,11 +78,10 @@ void setup() {
   // initialise ADC wireing_analog_nRF52.c:73
   analogReference(AR_DEFAULT);        // default 0.6V*6=3.6V  wireing_analog_nRF52.c:73
   analogReadResolution(12);           // wireing_analog_nRF52.c:39
-  // Initialize FastLED on all pins, using the same LED array for each
   FastLED.addLeds<WS2812B, DATA_PIN_1, GRB>(leds1, NUM_LEDS);
   FastLED.addLeds<WS2812B, DATA_PIN_2, GRB>(leds2, NUM_LEDS);
-  // FastLED.setMaxPowerInVoltsAndMilliamps(5, 300);
-  FastLED.setBrightness(globalBrightness);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, 300);
+  // FastLED.setBrightness(globalBrightness);
   FastLED.setCorrection(TypicalLEDStrip);
   fill_solid(leds, NUM_LEDS, CRGB::Black); // Initialize zero array
   fill_solid(leds1, NUM_LEDS, CRGB::Black); // Initialize zero array
