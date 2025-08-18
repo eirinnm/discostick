@@ -60,6 +60,7 @@ BLEService controlService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
 BLEService batteryService("180F"); // Standard Battery Service UUID
 BLECharacteristic batteryLevelChar("2A19", BLERead | BLENotify, 1, &batteryService);
 
+void drawFractionalBar(int pos16, int width, uint8_t hue, uint8_t sat);
 
 
 
@@ -220,13 +221,85 @@ uint8_t colour_pulse(uint8_t hue){
   return firstLedBrightness; // Return brightness as indicator of activity
 }
 
-void screensaver() {
-  // Simple color wipe effect for screensaver
-  static uint8_t hue = 0;
-  hue += 5; // Increment hue
-  fill_solid(leds1, NUM_LEDS, CHSV(hue, 255, 255));
-  fill_solid(leds2, NUM_LEDS, CHSV(hue+128, 255, 255));
+// void screensaver() {
+//   // Simple color wipe effect for screensaver
+//   static uint8_t hue = 0;
+//   hue += 5; // Increment hue
+//   fill_solid(leds1, NUM_LEDS, CHSV(hue, 255, 255));
+//   fill_solid(leds2, NUM_LEDS, CHSV(hue+128, 255, 255));
+// }
+
+struct raindrop {
+    int pos16 = 0;
+    float speed = 0;
+    bool active = false;
+};
+const byte NUM_DROPS = 4;
+raindrop drops[NUM_DROPS];
+const float RAINDROP_GRAVITY = -0.6; //higher makes it fall faster
+
+const byte NEWDROPS = 5;
+
+void raindrops() {
+  // create some falling sprites. They should fall based on gravity.
+  // If the IMU reports pitch > 0, drops should start at the end of the strip and move down
+  // If the IMU reports pitch near 0, drops should move more slowly.
+  static byte masterhue=0;
+  static unsigned long lastHueChange = 0;
+  fadeToBlackBy(leds, NUM_LEDS, 32);
+  if(millis()-lastHueChange > 10){
+    masterhue++;
+    lastHueChange = millis();
+  }
+  // get gravity as a float
+  float gravity = sin(pitch * PI / 180.0f); // -1 (down) to +1 (up)
+  for (int i = 0; i < NUM_DROPS; i++) {
+      if (drops[i].active)
+      { // this is an active drop, accelerate it
+        // note: gravity is a float ranging from -1.0 (pointing down) to +1.0 (straight up)
+          drops[i].speed += RAINDROP_GRAVITY * gravity;
+          // move it
+          drops[i].pos16 += drops[i].speed;
+          // if it hits the bottom it should reverse and slow down
+          if (drops[i].pos16 <= 0) {
+              drops[i].pos16 *= -1;
+              // make it bounce by a reduced amount
+              drops[i].speed *= -(0.4 + random8(4)/10.0);
+          }
+          if (drops[i].pos16 > (NUM_LEDS-1)*16) { 
+              // if it hits the top, make it bounce
+              drops[i].pos16 = (NUM_LEDS-1)*16*2 - drops[i].pos16-1;
+              // make it bounce by a reduced amount
+              drops[i].speed *= -(0.4 + random8(4)/10.0);
+          }
+          // if raindrop has bounced enough times that it becomes slow, kill it
+          if ((abs(drops[i].speed) < 0.5) && ((drops[i].pos16 == 0) || (drops[i].pos16 >= (NUM_LEDS-1)*16))){
+              drops[i].active = false; 
+          }
+      } else {
+          // inactive drop. Should we activate it?
+          if(random8() < NEWDROPS){
+              if (gravity>0){
+                  drops[i].pos16 = (NUM_LEDS-1) * 16; //put it at the top of the staff
+              }else{
+                  drops[i].pos16 = 1; //put it at the bottom of the staff
+              }
+              drops[i].active = true;
+              drops[i].speed = 0;
+          }
+      }
+      if (drops[i].active) {
+        // actually render the droplet
+        uint8_t dropHue = masterhue + i*4; // offset hue for each drop
+        drawFractionalBar(drops[i].pos16, 3, dropHue, 255);
+      }
+  }
+  // copy virtual array onto physical array (just one to save power)
+  memcpy(leds1, leds, sizeof(leds1));
+  // memcpy(leds2, leds, sizeof(leds2));
+  fill_solid(leds2, NUM_LEDS, CRGB::Black);
 }
+
 
 void loop() {
   unsigned long now = millis();
@@ -246,7 +319,7 @@ void loop() {
       lastActivityTime = now;
     }
   }else{
-    screensaver();
+    raindrops();
     // exit screensaver by fast rotation sustained for 2 seconds
     static unsigned long screensaverExitTime = 0;
     if (totalRotation > rotationThresholdExitScreensaver) {
@@ -272,4 +345,51 @@ void loop() {
     batteryLevelChar.notify8(battery);     // Notify connected clients
     lastBatteryUpdate = millis();
   }
+}
+
+void drawFractionalBar(int pos16, int width, uint8_t hue, uint8_t sat) {
+    int i = (pos16 / 16);  // convert from pos to raw pixel number
+    uint8_t frac = pos16 & 0x0F;             // extract the 'factional' part of the position
+
+    // brightness of the first pixel in the bar is 1.0 - (fractional part of position)
+    // e.g., if the light bar starts drawing at pixel "57.9", then
+    // pixel #57 should only be lit at 10% brightness, because only 1/10th of it
+    // is "in" the light bar:
+    //
+    //                       57.9 . . . . . . . . . . . . . . . . . 61.9
+    //                        v                                      v
+    //  ---+---56----+---57----+---58----+---59----+---60----+---61----+---62---->
+    //     |         |        X|XXXXXXXXX|XXXXXXXXX|XXXXXXXXX|XXXXXXXX |
+    //  ---+---------+---------+---------+---------+---------+---------+--------->
+    //                   10%       100%      100%      100%      90%
+    //
+    // the fraction we get is in 16ths and needs to be converted to 256ths,
+    // so we multiply by 16.  We subtract from 255 because we want a high
+    // fraction (e.g. 0.9) to turn into a low brightness (e.g. 0.1)
+    uint8_t firstpixelbrightness = 255 - (frac * 16);
+
+    // if the bar is of integer length, the last pixel's brightness is the
+    // reverse of the first pixel's; see illustration above.
+    uint8_t lastpixelbrightness = 255 - firstpixelbrightness;
+
+    // For a bar of width "N", the code has to consider "N+1" pixel positions,
+    // which is why the "<= width" below instead of "< width".
+
+    uint8_t bright;
+    for (int n = 0; n <= width; n++) {
+        if (n == 0) {
+            // first pixel in the bar
+            bright = firstpixelbrightness;
+        } else if (n == width) {
+            // last pixel in the bar
+            bright = lastpixelbrightness;
+        } else {
+            // middle pixels
+            bright = 255;
+        }
+
+        leds[i] += CHSV(hue, sat, bright);
+        i++;
+        if (i >= NUM_LEDS) break;
+    }
 }
