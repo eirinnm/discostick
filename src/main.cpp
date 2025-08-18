@@ -19,35 +19,14 @@ extern "C" void* __wrap_calloc(size_t n, size_t size) {
 #define FASTLED_NRF52_MAXIMUM_PIXELS_PER_STRING 160
 #include "FastLED.h"
 
-// --- BLE adjustable variables ---
-uint8_t fadeOutRate       = 150; // Adjustable via BLE
+// --- Motion variables ---
+uint8_t fadeOutRate       = 150; 
 uint8_t speedFactor       = 15;
 uint8_t hueSensitivity10x = 10;   // will be divided by 10 for actual sensitivity
 uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
 uint8_t flickerRate       = 25; // Flicker rate in Hz
-
 uint8_t globalBrightness = 120; 
-
-const uint8_t DEFAULT_FADEOUT = 100;
-const uint8_t DEFAULT_SPEED = 3;
-const uint8_t DEFAULT_HUE = 20;
-const uint8_t DEFAULT_ACCEL = 2;
-const uint8_t DEFAULT_ROT = 2;
-const uint8_t DEFAULT_FLICKER = 25;
-
-// Structure for settings
-struct DiscostickSettings {
-  uint8_t fadeOutRate;
-  uint8_t speedFactor;
-  uint8_t hueSensitivity10x;
-  uint8_t accelThreshold;
-  uint8_t rotationThreshold;
-  uint8_t flickerRate;
-};
-
-// pin connected to button for toggling flicker effect
-#define FLICKER_BUTTON_PIN D8
 
 // Create an instance of class LSM6DS3
 LSM6DS3 myIMU(I2C_MODE, 0x6A);    // I2C device address 0x6A
@@ -73,149 +52,12 @@ CRGB leds2[NUM_LEDS];  // LED array for strip 2
 
 
 // Global BLE objects
-BLEService controlService("19B10000-E8F2-537E-4F6C-D104768A1214");
-
-BLECharacteristic fadeOutRateChar("19B10001-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
-BLECharacteristic speedFactorChar("19B10002-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
-BLECharacteristic hueSensitivityChar("19B10003-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
-BLECharacteristic accelThresholdChar("19B10004-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
-BLECharacteristic rotationThresholdChar("19B10005-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
-BLECharacteristic flickerRateChar("19B10006-E8F2-537E-4F6C-D104768A1214", BLERead | BLEWrite);
-BLECharacteristic saveSettingsChar("19B10007-E8F2-537E-4F6C-D104768A1214", BLEWrite);
-BLECharacteristic restoreDefaultsChar("19B10008-E8F2-537E-4F6C-D104768A1214", BLEWrite);
+BLEService controlService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
 BLEService batteryService("180F"); // Standard Battery Service UUID
-BLECharacteristic batteryLevelChar("2A19", BLERead | BLENotify);
-
-// Function prototypes for settings management
-void saveSettings();
-void loadSettings();
-void restoreDefaults();
+BLECharacteristic batteryLevelChar("2A19", BLERead | BLENotify, 1, &batteryService);
 
 
-void fadeOutRateWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-    if (len >= 1) {
-        fadeOutRate = data[0];
-        Serial.print("Updated fadeOutRate: ");
-        Serial.println(fadeOutRate);
-    }
-}
-void speedFactorWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-    if (len >= 1) {
-        speedFactor = data[0];
-        Serial.print("Updated speedFactor: ");
-        Serial.println(speedFactor);
-    }
-}
-void hueSensitivityWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-    if (len >= 1) {
-        hueSensitivity10x = data[0];
-        Serial.print("Updated hueSensitivity: ");
-        Serial.println(hueSensitivity10x);
-    }
-}
-void accelThresholdWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-    if (len >= 1) {
-        accelThreshold = data[0];
-        Serial.print("Updated accelThreshold: ");
-        Serial.println(accelThreshold);
-    }
-}
-void rotationThresholdWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-    if (len >= 1) {
-        rotationThreshold = data[0];
-        Serial.print("Updated rotationThreshold: ");
-        Serial.println(rotationThreshold);
-    }
-}
-void flickerRateWriteCallback(uint16_t conn_handle, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  if (len >= 1) {
-    flickerRate = data[0];
-    Serial.print("Updated flickerRate: ");
-    Serial.println(flickerRate);
-  }
-}
-// void saveSettingsWriteCallback(uint16_t, BLECharacteristic*, uint8_t*, uint16_t) {
-//   saveSettings();
-//   // flash the LEDs
-//   fill_solid(leds, NUM_LEDS, CRGB::Green);
-//   FastLED.show();
-//   delay(100);
-//   fill_solid(leds, NUM_LEDS, CRGB::Black);
-//   FastLED.show();
-// }
-void restoreDefaultsWriteCallback(uint16_t, BLECharacteristic*, uint8_t*, uint16_t) {
-  restoreDefaults();
-  saveSettings(); // Optionally save defaults immediately
-}
 
-// Save settings to InternalFileSystem (LittleFS)
-void saveSettings() {
-  DiscostickSettings s = {
-    fadeOutRate,
-    speedFactor,
-    hueSensitivity10x,
-    accelThreshold,
-    rotationThreshold,
-    flickerRate
-  };
-
-  // Remove the file first to ensure truncation
-  InternalFS.remove("/discostick.cfg");
-
-  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/discostick.cfg", Adafruit_LittleFS_Namespace::FILE_O_WRITE);
-  if (f) {
-    f.write((uint8_t*)&s, sizeof(DiscostickSettings));
-    f.close();
-    Serial.println("Settings saved to InternalFS.");
-  } else {
-    Serial.println("Failed to open settings file for writing!");
-  }
-}
-
-// Load settings from InternalFileSystem (LittleFS)
-void loadSettings() {
-  Adafruit_LittleFS_Namespace::File f = InternalFS.open("/discostick.cfg", Adafruit_LittleFS_Namespace::FILE_O_READ);
-  if (f) {
-    Serial.print("discostick.cfg size: ");
-    Serial.println(f.size());
-  }
-  if (f && f.size() == sizeof(DiscostickSettings)) {
-    DiscostickSettings s;
-    f.read((uint8_t*)&s, sizeof(DiscostickSettings));
-    f.close();
-    fadeOutRate = s.fadeOutRate;
-    speedFactor = s.speedFactor;
-    hueSensitivity10x = s.hueSensitivity10x;
-    accelThreshold = s.accelThreshold;
-    rotationThreshold = s.rotationThreshold;
-    flickerRate = s.flickerRate;
-    // debugHueSensitivity = s.hueSensitivity10x; // Set debug variable ONCE here
-    Serial.println("Settings loaded from InternalFS.");
-  } else {
-    Serial.println("No valid settings file found, using defaults.");
-    restoreDefaults();
-    saveSettings(); // Save defaults so file exists for next boot
-  }
-}
-
-void restoreDefaults() {
-  fadeOutRate = DEFAULT_FADEOUT;
-  speedFactor = DEFAULT_SPEED;
-  hueSensitivity10x = DEFAULT_HUE;
-  accelThreshold = DEFAULT_ACCEL;
-  rotationThreshold = DEFAULT_ROT;
-  flickerRate = DEFAULT_FLICKER;
-
-  // Update BLE characteristics
-  fadeOutRateChar.write8(fadeOutRate);
-  speedFactorChar.write8(speedFactor);
-  hueSensitivityChar.write8(hueSensitivity10x);
-  accelThresholdChar.write8(accelThreshold);
-  rotationThresholdChar.write8(rotationThreshold);
-  flickerRateChar.write8(flickerRate);
-
-  Serial.println("Settings restored to defaults.");
-}
 
 void setup() {
   Serial.begin(115200);
@@ -247,90 +89,32 @@ void setup() {
   while (myIMU.begin() != 0) {
       delay(1);
   }
-  // if (!InternalFS.begin()) {
-  //   Serial.println("Failed to mount InternalFS!");
-  //   while (1) { delay(10); }
-  // }
-  // Serial.println("InternalFS mounted.");
-  // // Initialize Bluefruit.
-  // Bluefruit.begin();
-  // Bluefruit.autoConnLed(false); // Disable auto connection LED
-  // Bluefruit.setName("Discostick");
-  // // Optionally set Tx power
-  
-  // // Begin global service.
-  // controlService.begin();
-  
-  
-  // // Configure and initialize characteristics using native 1-byte values.
-  // fadeOutRateChar.setFixedLen(1);
-  // fadeOutRateChar.setWriteCallback(fadeOutRateWriteCallback);
-  // fadeOutRateChar.setUserDescriptor("Fade-out Rate");
-  // fadeOutRateChar.begin();
-  
-  // speedFactorChar.setFixedLen(1);
-  // speedFactorChar.setWriteCallback(speedFactorWriteCallback);
-  // speedFactorChar.setUserDescriptor("Speed Factor");
-  // speedFactorChar.begin();
-  
-  // hueSensitivityChar.setFixedLen(1);
-  // hueSensitivityChar.setWriteCallback(hueSensitivityWriteCallback);
-  // hueSensitivityChar.setUserDescriptor("Hue Sensitivity");
-  // hueSensitivityChar.begin();
-  
-  // accelThresholdChar.setFixedLen(1);
-  // accelThresholdChar.setWriteCallback(accelThresholdWriteCallback);
-  // accelThresholdChar.setUserDescriptor("Accel Threshold");
-  // accelThresholdChar.begin();
-  
-  // rotationThresholdChar.setFixedLen(1);
-  // rotationThresholdChar.setWriteCallback(rotationThresholdWriteCallback);
-  // rotationThresholdChar.setUserDescriptor("Rotation Threshold");
-  // rotationThresholdChar.begin();
-  
-  // flickerRateChar.setFixedLen(1);
-  // flickerRateChar.setWriteCallback(flickerRateWriteCallback);
-  // flickerRateChar.setUserDescriptor("Flicker Rate");
-  // flickerRateChar.begin();
-  
-  // saveSettingsChar.setFixedLen(1);
-  // saveSettingsChar.setUserDescriptor("Save Settings");
-  // saveSettingsChar.setWriteCallback(saveSettingsWriteCallback);
-  // saveSettingsChar.begin();
-  
-  // restoreDefaultsChar.setFixedLen(1);
-  // restoreDefaultsChar.setUserDescriptor("Restore Defaults");
-  // restoreDefaultsChar.setWriteCallback(restoreDefaultsWriteCallback);
-  // restoreDefaultsChar.begin();
-
-  // batteryService.begin();
-
-  // batteryLevelChar.setFixedLen(1);
-  // batteryLevelChar.setUserDescriptor("Battery Level");
-  // batteryLevelChar.begin();
-
-  // loadSettings(); // Load settings from InternalFS
-  // fadeOutRateChar.write8(fadeOutRate);
-  // speedFactorChar.write8(speedFactor);
-  // hueSensitivityChar.write8(hueSensitivity10x);
-  // accelThresholdChar.write8(accelThreshold);
-  // rotationThresholdChar.write8(rotationThreshold);
-  // flickerRateChar.write8(flickerRate);
-
-  // // Begin advertising the service.
-  // Bluefruit.Advertising.addName();
-  // Bluefruit.Advertising.addManufacturerData("Eirinn", 6); 
-  // Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-  // Bluefruit.Advertising.addService(controlService);
-  // Bluefruit.Advertising.addService(batteryService);
-  // Bluefruit.Advertising.restartOnDisconnect(true);
-  // Bluefruit.Advertising.setInterval(1600, 3200); // 1–2 seconds
-  // Bluefruit.Periph.setConnInterval(80, 160);     // 100–200ms (optional)
-  // Bluefruit.Advertising.start();
-
-  // Serial.println("Bluefruit BLE server started, waiting for connections...");
+  setupBLE(); // Initialize BLE services and characteristics
 }
 
+
+void setupBLE() {
+  Bluefruit.begin();
+  Bluefruit.setName("Discostick");
+  Bluefruit.setTxPower(4);
+  Bluefruit.setConnectionInterval(100);
+
+  // Add services
+  Bluefruit.addService(controlService);
+  Bluefruit.addService(batteryService);
+
+  // Set up battery level characteristic
+  batteryLevelChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  batteryLevelChar.setFixedLen(1); // Battery level is 1 byte
+  batteryLevelChar.write8(getBatteryPercent()); // Set initial value
+
+  // Advertise battery service UUID for Android compatibility
+  Bluefruit.Advertising.addService(batteryService);
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.start();
+
+  Serial.println("BLE setup complete");
+}
 
 // Helper function to wrap angles to [-180, 180] degrees.
 float wrapAngle180(float angle) {
@@ -414,37 +198,36 @@ void loop() {
         firstLedBrightness = scale8(firstLedBrightness, fadeOutRate); // Fade out effect.
     }
 
-    // Shift the LED arrays by n=speedFactor positions
-    for (int i = NUM_LEDS - 1; i >= speedFactor; i--) {
-        leds[i] = leds[i - speedFactor];
-    }
-    // Fill the first n=speedFactor LEDs with the new color/brightness
-    for (int i = 0; i < speedFactor; i++) {
-        leds[i] = CHSV(hue, 255, firstLedBrightness);
-    }
-    }
-    // Now copy the virtual LED array to the actual LED arrays
-    // Alternate which strip is displayed, each frame
-    static bool showPrimaryStrip = true;
-    if (showPrimaryStrip) {
-        // Show leds1, turn off leds2 (just for display)
-        leds1 = memcpy(leds1, leds, sizeof(leds1));
-        fill_solid(leds2, NUM_LEDS, CRGB::Black);
-    } else {
-        // Show leds2, turn off leds1 (just for display)
-        leds2 = memcpy(leds2, leds, sizeof(leds2));
-        fill_solid(leds1, NUM_LEDS, CRGB::Black);
-    }
-    FastLED.show(); // Show leds1
-    showPrimaryStrip = !showPrimaryStrip; // Toggle for next frame
+  // Shift the LED arrays by n=speedFactor positions
+  for (int i = NUM_LEDS - 1; i >= speedFactor; i--) {
+    leds[i] = leds[i - speedFactor];
+  }
+  // Fill the first n=speedFactor LEDs with the new color/brightness
+  for (int i = 0; i < speedFactor; i++) {
+    leds[i] = CHSV(hue, 255, firstLedBrightness);
+  }
+  // Now copy the virtual LED array to the actual LED arrays
+  // Alternate which strip is displayed, each frame
+  static bool showPrimaryStrip = true;
+  if (showPrimaryStrip) {
+    // Show leds1, turn off leds2 (just for display)
+  memcpy(leds1, leds, sizeof(leds1));
+    fill_solid(leds2, NUM_LEDS, CRGB::Black);
+  } else {
+    // Show leds2, turn off leds1 (just for display)
+  memcpy(leds2, leds, sizeof(leds2));
+    fill_solid(leds1, NUM_LEDS, CRGB::Black);
+  }
+  FastLED.show(); // Show leds1
+  showPrimaryStrip = !showPrimaryStrip; // Toggle for next frame
 
-    FastLED.delay(5); // limit frame rate to 200 FPS
+  FastLED.delay(10); // limit frame rate to 100 FPS
 
-    static unsigned long lastBatteryUpdate = 0;
-    if (millis() - lastBatteryUpdate > 5000) { // Every 5 seconds
-      uint8_t battery = getBatteryPercent();
-      batteryLevelChar.write8(battery);      // Update value
-      batteryLevelChar.notify8(battery);     // Notify connected clients
-      lastBatteryUpdate = millis();
-    }
+  static unsigned long lastBatteryUpdate = 0;
+  if (millis() - lastBatteryUpdate > 5000) { // Every 5 seconds
+    uint8_t battery = getBatteryPercent();
+    batteryLevelChar.write8(battery);      // Update value
+    batteryLevelChar.notify8(battery);     // Notify connected clients
+    lastBatteryUpdate = millis();
+  }
 }
