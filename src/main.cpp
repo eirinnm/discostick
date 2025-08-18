@@ -27,7 +27,7 @@ uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
 uint8_t flickerRate       = 25; // Flicker rate in Hz
 
-// uint8_t debugHueSensitivity = 0;
+uint8_t globalBrightness = 120; 
 
 const uint8_t DEFAULT_FADEOUT = 100;
 const uint8_t DEFAULT_SPEED = 3;
@@ -63,13 +63,13 @@ float totalRotation = 0.0f;
 
 // FastLED setup
 #define NUM_LEDS 160
-// Define all data pins to output the same pattern
+// Define data pins for each strip
 #define DATA_PIN_1 2
 #define DATA_PIN_2 3
-// Adafruit_NeoPixel* strip = nullptr;
-CRGB leds1[NUM_LEDS];  // Global LED array
-CRGB leds2[NUM_LEDS];  // Global LED array
-CRGB leds_zero[NUM_LEDS];  // Global LED array set to black, for strobe effect
+
+CRGB leds[NUM_LEDS];  // Virtual LED array
+CRGB leds1[NUM_LEDS];  // LED array for strip 1
+CRGB leds2[NUM_LEDS];  // LED array for strip 2
 
 
 // Global BLE objects
@@ -216,64 +216,6 @@ void restoreDefaults() {
 
   Serial.println("Settings restored to defaults.");
 }
-// ///////////
-// void setup() {
-//   Serial.begin(115200);
-//   Serial.println("Discostick starting up (Adafruit_NeoPixel test)...");
-
-//   pinMode(LED_BUILTIN, OUTPUT);
-//   pinMode(VBAT_ENABLE, OUTPUT);
-//   digitalWrite(VBAT_ENABLE, LOW);
-//   pinMode(PIN_VBAT, INPUT);
-//   analogReference(AR_DEFAULT);
-//   analogReadResolution(12);
-//   // blink LED_builtin 3 times
-//   for (int i = 0; i < 3; i++) {
-//     digitalWrite(LED_BUILTIN, HIGH);
-//     delay(100);
-//     digitalWrite(LED_BUILTIN, LOW);
-//     delay(100);
-//   }
-//   // Dynamically allocate the NeoPixel strip
-//   strip = new Adafruit_NeoPixel(NUM_LEDS, DATA_PIN, NEO_GRB + NEO_KHZ800);
-//   strip->begin();
-//   strip->show(); // Initialize all pixels to 'off'
-//   // blink LED_builtin 3 times
-//   for (int i = 0; i < 3; i++) {
-//     digitalWrite(LED_BUILTIN, HIGH);
-//     delay(1000);
-//     digitalWrite(LED_BUILTIN, LOW);
-//     delay(1000);
-//   }
-// }//////////////////
-
-// void loop() {
-//   // Adafruit_NeoPixel rainbow test
-//   // strip.begin();
-//   // strip.show(); // Initialize all pixels to 'off'
-//   int hue = 0;
-//   while (true) {
-//     // for (int i = 0; i < NUM_LEDS; i++) {
-//     //   // Wheel function for rainbow colors
-//     //   uint8_t wheelPos = (i + hue) & 0xFF;
-//     //   uint32_t color;
-//     //   if (wheelPos < 85) {
-//     //     color = strip.Color(wheelPos * 3, 255 - wheelPos * 3, 0);
-//     //   } else if (wheelPos < 170) {
-//     //     wheelPos -= 85;
-//     //     color = strip.Color(255 - wheelPos * 3, 0, wheelPos * 3);
-//     //   } else {
-//     //     wheelPos -= 170;
-//     //     color = strip.Color(0, wheelPos * 3, 255 - wheelPos * 3);
-//     //   }
-//     //   strip.setPixelColor(i, color);
-//     // }
-//     // strip.show();
-//     delay(50);
-//     hue++;
-//     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-//   }
-// }
 
 void setup() {
   Serial.begin(115200);
@@ -291,23 +233,16 @@ void setup() {
   analogReference(AR_DEFAULT);        // default 0.6V*6=3.6V  wireing_analog_nRF52.c:73
   analogReadResolution(12);           // wireing_analog_nRF52.c:39
   // Initialize FastLED on all pins, using the same LED array for each
-  FastLED.addLeds<WS2812, DATA_PIN_1, GRB>(leds1, NUM_LEDS);
-  FastLED.addLeds<WS2812, DATA_PIN_2, GRB>(leds2, NUM_LEDS);
-  FastLED.setMaxPowerInVoltsAndMilliamps(5, 300);
-  // FastLED.setCorrection(CRGB(255, 180, 180));
+  FastLED.addLeds<WS2812B, DATA_PIN_1, GRB>(leds1, NUM_LEDS);
+  FastLED.addLeds<WS2812B, DATA_PIN_2, GRB>(leds2, NUM_LEDS);
+  // FastLED.setMaxPowerInVoltsAndMilliamps(5, 300);
+  FastLED.setBrightness(globalBrightness);
   FastLED.setCorrection(TypicalLEDStrip);
+  fill_solid(leds, NUM_LEDS, CRGB::Black); // Initialize zero array
   fill_solid(leds1, NUM_LEDS, CRGB::Black); // Initialize zero array
   fill_solid(leds2, NUM_LEDS, CRGB::Black); // Initialize zero array
   FastLED.show(); // Ensure all LEDs are off initially
-  // // pause here for debugging
-  // int hue = 0;
-  // while (true){
-  //   fill_rainbow(leds, NUM_LEDS, hue++, 1); // Initialize rainbow array
-  //   FastLED.show();
-  //   delay(100);
-  //   digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-  //   // Serial.print('.');
-  // }
+
   // Configure the IMU.
   while (myIMU.begin() != 0) {
       delay(1);
@@ -464,22 +399,7 @@ uint8_t getBatteryPercent() {
   return (uint8_t)(percent + 0.5f);
 }
 
-bool checkButtonPress() {
-    static bool flickerEnabled = false;
-    static unsigned long holdCounter = 0;
-    bool currentButtonState = digitalRead(FLICKER_BUTTON_PIN);
-    if (currentButtonState == LOW) {
-        holdCounter++;
-    } else {
-        if (holdCounter > 5) { // Button was held for >50ms
-            flickerEnabled = !flickerEnabled;
-        }
-        holdCounter = 0; // Always reset on release
-    }
-    return flickerEnabled;
-  }
-  
-const int second_strip_offset = 10; // number of LEDs to offset the second strip by
+
 void loop() {
     unsigned long now = millis();
 
@@ -494,41 +414,31 @@ void loop() {
         firstLedBrightness = scale8(firstLedBrightness, fadeOutRate); // Fade out effect.
     }
 
-    // Shift the LED arrays by speedFactor positions
+    // Shift the LED arrays by n=speedFactor positions
     for (int i = NUM_LEDS - 1; i >= speedFactor; i--) {
-        leds1[i] = leds1[i - speedFactor];
-        leds2[i] = leds2[i - speedFactor];
+        leds[i] = leds[i - speedFactor];
     }
-    // Fill the first speedFactor LEDs with the new color/brightness
+    // Fill the first n=speedFactor LEDs with the new color/brightness
     for (int i = 0; i < speedFactor; i++) {
-        leds1[i] = CHSV(hue, 255, firstLedBrightness);
-        // leds2[i] = leds1[i + second_strip_offset];
-        leds2[i] = CRGB::Black; // Clear the second strip for now
+        leds[i] = CHSV(hue, 255, firstLedBrightness);
     }
-
-    // print brightness and hue for debugging
-    Serial.print("Brightness: ");
-    Serial.print(firstLedBrightness);
-    Serial.print(", Hue: ");
-    Serial.println(hue);
-
-    // Alternate which strip is displayed each frame, without overwriting arrays
+    }
+    // Now copy the virtual LED array to the actual LED arrays
+    // Alternate which strip is displayed, each frame
     static bool showPrimaryStrip = true;
-    // if (showPrimaryStrip) {
-    //     // Show leds1, turn off leds2 (just for display)
-    //     FastLED[0].showLeds(NUM_LEDS); // Show leds1 as is
-    //     FastLED[1].clearLeds();           // Temporarily output black on leds2
-    //     FastLED[1].showLeds(NUM_LEDS);
-    // } else {
-    //     // Show leds2, turn off leds1 (just for display)
-    //     FastLED[1].showLeds(NUM_LEDS); // Show leds2 as is
-    //     FastLED[0].clearLeds();           // Temporarily output black on leds1
-    //     FastLED[0].showLeds(NUM_LEDS);
-    // }
+    if (showPrimaryStrip) {
+        // Show leds1, turn off leds2 (just for display)
+        leds1 = memcpy(leds1, leds, sizeof(leds1));
+        fill_solid(leds2, NUM_LEDS, CRGB::Black);
+    } else {
+        // Show leds2, turn off leds1 (just for display)
+        leds2 = memcpy(leds2, leds, sizeof(leds2));
+        fill_solid(leds1, NUM_LEDS, CRGB::Black);
+    }
     FastLED.show(); // Show leds1
     showPrimaryStrip = !showPrimaryStrip; // Toggle for next frame
 
-    FastLED.delay(10); // limit frame rate to 100 FPS
+    FastLED.delay(5); // limit frame rate to 200 FPS
 
     static unsigned long lastBatteryUpdate = 0;
     if (millis() - lastBatteryUpdate > 5000) { // Every 5 seconds
