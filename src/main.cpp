@@ -25,8 +25,12 @@ uint8_t speedFactor       = 15;
 uint8_t hueSensitivity10x = 10;   // will be divided by 10 for actual sensitivity
 uint8_t accelThreshold    = 2;
 uint8_t rotationThreshold = 2;
+uint8_t rotationThresholdExitScreensaver = rotationThreshold * 4;
 uint8_t flickerRate       = 25; // Flicker rate in Hz
 uint8_t globalBrightness = 120; 
+
+unsigned long screensaverTimeout_ms = 30000; // 30 seconds
+
 
 // Create an instance of class LSM6DS3
 LSM6DS3 myIMU(I2C_MODE, 0x6A);    // I2C device address 0x6A
@@ -183,20 +187,15 @@ uint8_t getBatteryPercent() {
   return (uint8_t)(percent + 0.5f);
 }
 
-
-void loop() {
-    unsigned long now = millis();
-
-    // Update sensor data and compute hue.
-    uint8_t hue = updateIMU() * hueSensitivity10x / 10; // Scale hue for better visibility.
-
-    // Set the brightness for the first LED based on motion thresholds.
-    static uint8_t firstLedBrightness = 0;
-    if ((totalAccel > accelThreshold) || (totalRotation > rotationThreshold)) {
-        firstLedBrightness = 255;
-    } else { 
-        firstLedBrightness = scale8(firstLedBrightness, fadeOutRate); // Fade out effect.
-    }
+uint8_t colour_pulse(uint8_t hue){
+  // Main animation.
+  // Set the brightness for the first LED based on motion thresholds.
+  static uint8_t firstLedBrightness = 0;
+  if ((totalAccel > accelThreshold) || (totalRotation > rotationThreshold)) {
+      firstLedBrightness = 255;
+  } else { 
+      firstLedBrightness = scale8(firstLedBrightness, fadeOutRate); // Fade out effect.
+  }
 
   // Shift the LED arrays by n=speedFactor positions
   for (int i = NUM_LEDS - 1; i >= speedFactor; i--) {
@@ -218,9 +217,53 @@ void loop() {
   memcpy(leds2, leds, sizeof(leds2));
     fill_solid(leds1, NUM_LEDS, CRGB::Black);
   }
-  FastLED.show(); // Show leds1
   showPrimaryStrip = !showPrimaryStrip; // Toggle for next frame
+  return firstLedBrightness; // Return brightness as indicator of activity
+}
 
+void screensaver() {
+  // Simple color wipe effect for screensaver
+  static uint8_t hue = 0;
+  hue += 5; // Increment hue
+  fill_solid(leds1, NUM_LEDS, CHSV(hue, 255, 255));
+  fill_solid(leds2, NUM_LEDS, CHSV(hue+128, 255, 255));
+}
+
+void loop() {
+  unsigned long now = millis();
+  static bool screensaverMode = false;
+  static unsigned long lastActivityTime = 0;
+
+  // Update sensor data and compute hue.
+  uint8_t hue = updateIMU() * hueSensitivity10x / 10; // Scale hue
+  if(!screensaverMode) {
+    uint8_t activity = colour_pulse(hue); // main animation effect
+    // Check for inactivity and switch to screensaver if needed
+    if (activity == 0) {
+      if (now - lastActivityTime > screensaverTimeout_ms) {
+        screensaverMode = true;
+      }
+    } else {
+      lastActivityTime = now;
+    }
+  }else{
+    screensaver();
+    // exit screensaver by fast rotation sustained for 2 seconds
+    static unsigned long screensaverExitTime = 0;
+    if (totalRotation > rotationThresholdExitScreensaver) {
+      if (screensaverExitTime == 0) {
+        screensaverExitTime = millis();
+      }
+      if (millis() - screensaverExitTime > 1000) {
+        screensaverMode = false;
+        screensaverExitTime = 0;
+      }
+    } else {
+      screensaverExitTime = 0;
+    }
+  }
+
+  FastLED.show(); // Show both strips
   FastLED.delay(10); // limit frame rate to 100 FPS
 
   static unsigned long lastBatteryUpdate = 0;
